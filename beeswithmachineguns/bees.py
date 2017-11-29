@@ -110,6 +110,8 @@ def _get_region(zone):
     return zone if 'gov' in zone else zone[:-1] # chop off the "d" in the "us-east-1d" to get the "Region"
 
 def _get_security_group_id(connection, security_group_name, subnet):
+    """Takes a security group name and returns the ID.  If the name cannot be found, the name will be attempted
+    as an ID.  The first group found by this name or ID will be used."""
     if not security_group_name:
         print('The bees need a security group to run under. Need to open a port from where you are to the target subnet.')
         return
@@ -117,8 +119,10 @@ def _get_security_group_id(connection, security_group_name, subnet):
     security_groups = connection.get_all_security_groups(filters={'group-name': [security_group_name]})
 
     if not security_groups:
-        print('The bees need a security group to run under. The one specified was not found.')
-        return
+        security_groups = connection.get_all_security_groups(filters={'group-id': [security_group_name]})
+        if not security_groups:
+            print('The bees need a security group to run under. The one specified was not found.')
+            return
 
     return security_groups[0].id if security_groups else None
 
@@ -135,7 +139,7 @@ def up(count, group, zone, image_id, instance_type, username, key_name, subnet, 
     if existing_username == username and existing_key_name == key_name and existing_zone == zone:
         ec2_connection = boto.ec2.connect_to_region(_get_region(zone))
         existing_reservations = ec2_connection.get_all_instances(instance_ids=instance_ids)
-        existing_instances = [i for i in [r.instances[0] for r in existing_reservations] if i.state == 'running']
+        existing_instances = [instance for reservation in existing_reservations for instance in reservation.instances if instance.state == 'running']
         # User, key and zone match existing values and instance ids are found on state file
         if count <= len(existing_instances):
             # Count is less than the amount of existing instances. No need to create new ones.
@@ -223,7 +227,7 @@ def up(count, group, zone, image_id, instance_type, username, key_name, subnet, 
 
     if instance_ids:
         existing_reservations = ec2_connection.get_all_instances(instance_ids=instance_ids)
-        existing_instances = [i for i in [r.instances[0] for r in existing_reservations] if i.state == 'running']
+        existing_instances = [instance for reservation in existing_reservations for instance in reservation.instances if instance.state == 'running']
         list(map(instances.append, existing_instances))
         dead_instances = [i for i in instance_ids if i not in [j.id for j in existing_instances]]
         list(map(instance_ids.pop, [instance_ids.index(i) for i in dead_instances]))
@@ -441,11 +445,19 @@ def _attack(params):
         else:
             options += ' -C \"sessionid=NotARealSessionID\"'
 
+        if params['ciphers'] is not '':
+            options += ' -Z %s' % params['ciphers']
+
         if params['basic_auth'] is not '':
             options += ' -A %s' % params['basic_auth']
 
         params['options'] = options
-        benchmark_command = 'ab -v 3 -r -n %(num_requests)s -c %(concurrent_requests)s %(options)s "%(url)s"' % params
+        # substrings to use for grep to perform remote output filtering
+        # resolves issue #194, too much data sent over SSH control channel to BWMG
+        # any future statistics parsing that requires more output from ab
+        # may need this line altered to include other patterns
+        params['output_filter_patterns'] = '\n'.join(['Time per request:', 'Requests per second: ', 'Failed requests: ', 'Connect: ', 'Receive: ', 'Length: ', 'Exceptions: ', 'Complete requests: ', 'HTTP/1.1'])
+        benchmark_command = 'ab -v 3 -r -n %(num_requests)s -c %(concurrent_requests)s %(options)s "%(url)s" 2>/dev/null | grep -F "%(output_filter_patterns)s"' % params
         print(benchmark_command)
         stdin, stdout, stderr = client.exec_command(benchmark_command)
 
@@ -684,6 +696,7 @@ def attack(url, n, c, **options):
     contenttype = options.get('contenttype', '')
     csv_filename = options.get("csv_filename", '')
     cookies = options.get('cookies', '')
+    ciphers = options.get('ciphers', '')
     post_file = options.get('post_file', '')
     keep_alive = options.get('keep_alive', False)
     basic_auth = options.get('basic_auth', '')
@@ -750,6 +763,7 @@ def attack(url, n, c, **options):
             'headers': headers,
             'contenttype': contenttype,
             'cookies': cookies,
+            'ciphers': ciphers,
             'post_file': options.get('post_file'),
             'keep_alive': options.get('keep_alive'),
             'mime_type': options.get('mime_type', ''),
