@@ -404,7 +404,8 @@ def _attack(params):
         pem_path = params.get('key_name') and _get_pem_path(params['key_name']) or None
         if not os.path.isfile(pem_path):
             client.load_system_host_keys()
-            client.connect(params['instance_name'], username=params['username'])
+            #client.connect(params['instance_name'], username=params['username'])
+            client.connect(params['instance_ip'], username=params['username'])
         else:
             client.connect(
                 params['instance_name'],
@@ -522,11 +523,11 @@ def _attack(params):
 def _summarize_results(results, params, csv_filename):
     summarized_results = dict()
     summarized_results['timeout_bees'] = [r for r in results if r is None]
-    summarized_results['exception_bees'] = [r for r in results if type(r) == socket.error]
-    summarized_results['complete_bees'] = [r for r in results if r is not None and type(r) != socket.error]
+    summarized_results['exception_bees'] = [r for r in results if type(r) == socket.error and type(r) == socket.gaierror]
+    summarized_results['complete_bees'] = [r for r in results if r is not None and type(r) != socket.error and type(r) != socket.gaierror]
     summarized_results['timeout_bees_params'] = [p for r, p in zip(results, params) if r is None]
-    summarized_results['exception_bees_params'] = [p for r, p in zip(results, params) if type(r) == socket.error]
-    summarized_results['complete_bees_params'] = [p for r, p in zip(results, params) if r is not None and type(r) != socket.error]
+    summarized_results['exception_bees_params'] = [p for r, p in zip(results, params) if type(r) == socket.error and type(r) == socket.gaierror]
+    summarized_results['complete_bees_params'] = [p for r, p in zip(results, params) if r is not None and type(r) != socket.error and type(r) != socket.gaierror]
     summarized_results['num_timeout_bees'] = len(summarized_results['timeout_bees'])
     summarized_results['num_exception_bees'] = len(summarized_results['exception_bees'])
     summarized_results['num_complete_bees'] = len(summarized_results['complete_bees'])
